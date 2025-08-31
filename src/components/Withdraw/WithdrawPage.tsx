@@ -1,18 +1,16 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import WithdrawForm from './WithdrawForm';
 import FeeCalculator from './FeeCalculator';
 import ConfirmationScreen from './ConfirmationScreen';
 import { ArrowUpRight } from 'lucide-react';
 
-interface WithdrawPageProps {
-  balance: number;
-  onWithdraw: (transaction: any) => void;
-}
-
-const WithdrawPage: React.FC<WithdrawPageProps> = ({ balance, onWithdraw }) => {
+const WithdrawPage: React.FC = () => {
+  const { user, addTransaction } = useAuth();
   const [step, setStep] = useState(1);
   const [withdrawData, setWithdrawData] = useState<any>(null);
 
+  const balance = user?.balance || 0;
   const handleWithdrawSubmit = (data: any) => {
     setWithdrawData(data);
     setStep(2);
@@ -22,18 +20,14 @@ const WithdrawPage: React.FC<WithdrawPageProps> = ({ balance, onWithdraw }) => {
     setStep(3);
   };
 
-  const handleConfirmWithdraw = () => {
-    const transaction = {
-      id: Date.now().toString(),
-      type: 'withdrawal',
+  const handleConfirmWithdraw = async () => {
+    await addTransaction({
       amount: withdrawData.amount,
-      currency: withdrawData.currency,
+      description: `Withdrawal ${withdrawData.amount} ${withdrawData.currency} to ${withdrawData.walletAddress}`,
       status: 'pending',
-      createdAt: new Date(),
-      walletAddress: withdrawData.walletAddress
-    };
+      type: 'debit'
+    });
     
-    onWithdraw(transaction);
     setStep(4);
   };
 

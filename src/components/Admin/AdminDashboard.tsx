@@ -1,32 +1,24 @@
 import React, { useState } from 'react';
 import { Users, DollarSign, TrendingUp, Activity, Search, Edit, Plus, Trash2 } from 'lucide-react';
+import { useAdminData } from '../../hooks/useAdminData';
+import { useAuth } from '../../contexts/AuthContext';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
 import Modal from '../UI/Modal';
 import UserEditModal from './UserEditModal';
 import TransactionAddModal from './TransactionAddModal';
 
-interface AdminDashboardProps {
-  users: any[];
-  transactions: any[];
-  onUpdateUser: (user: any) => void;
-  onAddTransaction: (transaction: any) => void;
-}
-
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
-  users, 
-  transactions, 
-  onUpdateUser, 
-  onAddTransaction 
-}) => {
+const AdminDashboard: React.FC = () => {
+  const { isAdminAuthenticated } = useAuth();
+  const { users, allTransactions, loading, updateUserProfile, addTransactionForUser } = useAdminData(isAdminAuthenticated);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingUser, setEditingUser] = useState<any>(null);
   const [showAddTransaction, setShowAddTransaction] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');
 
   const totalBalance = users.reduce((sum, user) => sum + user.balance, 0);
-  const totalTransactions = transactions.length;
-  const pendingTransactions = transactions.filter(t => t.status === 'pending').length;
+  const totalTransactions = allTransactions.length;
+  const pendingTransactions = allTransactions.filter(t => t.status === 'pending').length;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -36,28 +28,51 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const filteredUsers = users.filter(user =>
-    user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
+    (user.first_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (user.last_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleUpdateUser = (userData: any) => {
-    onUpdateUser({ ...editingUser, ...userData });
+  const handleUpdateUser = async (userData: any) => {
+    if (!editingUser) return;
+    
+    await updateUserProfile(editingUser.id, {
+      first_name: userData.firstName,
+      last_name: userData.lastName,
+      balance: userData.balance
+    });
     setEditingUser(null);
   };
 
-  const handleAddTransaction = (transactionData: any) => {
-    const transaction = {
-      id: Date.now().toString(),
-      user_id: selectedUserId,
-      ...transactionData,
-      createdAt: new Date()
-    };
-    onAddTransaction(transaction);
+  const handleAddTransaction = async (transactionData: any) => {
+    if (!selectedUserId) return;
+    
+    await addTransactionForUser(selectedUserId, {
+      amount: transactionData.amount,
+      description: transactionData.description,
+      status: transactionData.status,
+      type: transactionData.type,
+      currency: transactionData.currency,
+      wallet_address: transactionData.walletAddress
+    });
+    
     setShowAddTransaction(false);
     setSelectedUserId('');
   };
 
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 bg-slate-800 rounded"></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 bg-slate-800 rounded-2xl"></div>
+          ))}
+        </div>
+        <div className="h-96 bg-slate-800 rounded-2xl"></div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -164,13 +179,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                       <div>
                         <p className="font-medium text-white">
-                          {user.firstName} {user.lastName}
+                          {user.first_name} {user.last_name}
                         </p>
                         <p className="text-sm text-slate-400">ID: {user.id}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="py-4 px-4 text-slate-300">{user.email}</td>
+                  <td className="py-4 px-4 text-slate-300">{user.id}</td>
                   <td className="py-4 px-4">
                     <span className="text-green-400 font-semibold">
                       {formatCurrency(user.balance)}
@@ -222,7 +237,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Modals */}
       {editingUser && (
         <UserEditModal
-          user={editingUser}
+          user={{
+            id: editingUser.id,
+            firstName: editingUser.first_name,
+            lastName: editingUser.last_name,
+            balance: editingUser.balance
+          }}
           onSave={handleUpdateUser}
           onClose={() => setEditingUser(null)}
         />
@@ -230,7 +250,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {showAddTransaction && (
         <TransactionAddModal
-          users={users}
+          users={users.map(u => ({
+            id: u.id,
+            firstName: u.first_name || '',
+            lastName: u.last_name || ''
+          }))}
           selectedUserId={selectedUserId}
           onSave={handleAddTransaction}
           onClose={() => {

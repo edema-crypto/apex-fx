@@ -1,18 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Users, DollarSign } from 'lucide-react';
-import Input from '../UI/Input';
+import { useAdminData } from '../../hooks/useAdminData';
 import { useAuth } from '../../contexts/AuthContext';
+import Input from '../UI/Input';
 
 const AdminUsersList: React.FC = () => {
-  const { getUsers } = useAuth();
+  const { isAdminAuthenticated } = useAuth();
+  const { users, loading } = useAdminData(isAdminAuthenticated);
   const [term, setTerm] = useState('');
 
-  const users = getUsers();
   const filtered = users.filter(u =>
-    `${u.firstName} ${u.lastName}`.toLowerCase().includes(term.toLowerCase()) ||
-    u.email.toLowerCase().includes(term.toLowerCase())
+    `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase().includes(term.toLowerCase()) ||
+    u.id.toLowerCase().includes(term.toLowerCase())
   );
 
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 bg-slate-800 rounded"></div>
+        <div className="h-96 bg-slate-800 rounded-2xl"></div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center gap-3 mb-2">
@@ -42,28 +51,28 @@ const AdminUsersList: React.FC = () => {
                   <td className="py-3 px-4 text-slate-200">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center overflow-hidden">
-                        {u.avatar ? (
-                          <img src={u.avatar} alt="Profile" className="w-full h-full object-cover" />
+                        {u.avatar_url ? (
+                          <img src={u.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                         ) : (
                           <div className="text-sm text-slate-400 font-semibold">
-                            {u.firstName?.[0]}{u.lastName?.[0]}
+                            {u.first_name?.[0]}{u.last_name?.[0]}
                           </div>
                         )}
                       </div>
                       <div>
-                        <div className="font-medium">{u.firstName} {u.lastName}</div>
+                        <div className="font-medium">{u.first_name} {u.last_name}</div>
                         <div className="text-xs text-slate-400">ID: {u.id}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-slate-400">{u.email}</td>
+                  <td className="py-3 px-4 text-slate-400">{u.id}</td>
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
                       <DollarSign className="w-4 h-4 text-slate-400" />
                       <span className="font-medium text-white">${u.balance.toFixed(2)}</span>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-slate-400">{u.transactions.length}</td>
+                  <td className="py-3 px-4 text-slate-400">-</td>
                   <td className="py-3 px-4">
                     <a 
                       href={`/admin/users/${u.id}`} 

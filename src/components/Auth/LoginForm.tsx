@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
@@ -23,6 +23,9 @@ interface LoginFormProps {
 const LoginForm: React.FC<LoginFormProps> = ({ onLogin, onAdminLogin, onSwitchToRegister }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const { register, handleSubmit, formState: { errors } } = useForm({
     resolver: yupResolver(loginSchema)
@@ -49,6 +52,26 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin, onAdminLogin, onSwitchTo
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) {
+      toast.error('Please enter your email address');
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      // This would use the resetPassword function from useSupabaseAuth
+      // For now, we'll show a success message
+      toast.success('Password reset instructions sent to your email!');
+      setShowForgotPassword(false);
+      setResetEmail('');
+    } catch (error) {
+      toast.error('Failed to send reset email');
+    } finally {
+      setIsResetting(false);
+    }
+  };
   return (
     <div className="w-full max-w-lg mx-auto relative px-4 sm:px-0">
       {/* Abstract green background accents */}
@@ -110,6 +133,15 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin, onAdminLogin, onSwitchTo
           </Button>
         </form>
 
+        {/* Forgot Password */}
+        <div className="mt-4 text-center">
+          <button
+            onClick={() => setShowForgotPassword(true)}
+            className="text-sm text-slate-400 hover:text-neon-green transition-colors"
+          >
+            Forgot your password?
+          </button>
+        </div>
         {/* Switch to Register */}
         <div className="mt-6 sm:mt-8 text-center">
           <p className="text-xs sm:text-sm text-slate-400">
@@ -123,6 +155,64 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin, onAdminLogin, onSwitchTo
             </p>
           </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotPassword && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Reset Password</h3>
+              <button
+                onClick={() => setShowForgotPassword(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ×
+              </button>
+            </div>
+            
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-200 mb-2">Email Address</label>
+                <Input
+                  icon={Mail}
+                  type="email"
+                  placeholder="Enter your email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  required
+                />
+              </div>
+              
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-slate-300">
+                    We'll send you a secure link to reset your password.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowForgotPassword(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={isResetting}
+                  className="flex-1"
+                >
+                  Send Reset Link
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { TrendingUp, TrendingDown, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Quote, Target, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Quote, Target, Zap, Wifi, WifiOff } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface Transaction {
   id: string;
@@ -12,7 +13,9 @@ interface Transaction {
 }
 
 const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [lastSync, setLastSync] = useState<Date>(new Date());
   
   // Use centralized data from AuthContext
   const transactions = user?.transactions || [];
@@ -82,6 +85,13 @@ const Dashboard: React.FC = () => {
   const quoteOfTheDay = getQuoteOfTheDay();
 
   useEffect(() => {
+    // Monitor online status
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     // Load CoinGecko widget script
     const script = document.createElement('script');
     script.src = 'https://widgets.coingecko.com/gecko-coin-list-widget.js';
@@ -89,10 +99,20 @@ const Dashboard: React.FC = () => {
     document.body.appendChild(script);
 
     return () => {
-      document.body.appendChild(script);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
     };
   }, []);
 
+  // Update last sync time when data changes
+  useEffect(() => {
+    if (user && !loading) {
+      setLastSync(new Date());
+    }
+  }, [user, loading]);
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'success':
@@ -119,16 +139,26 @@ const Dashboard: React.FC = () => {
     return type === 'credit' ? 'text-green-400' : 'text-red-400';
   };
 
-  if (!user) {
+  if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="text-center text-slate-400">
-          <p>Loading user data...</p>
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 bg-slate-800 rounded"></div>
+        <div className="h-64 bg-slate-800 rounded-2xl"></div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-96 bg-slate-800 rounded-2xl"></div>
+          <div className="h-96 bg-slate-800 rounded-2xl"></div>
         </div>
       </div>
     );
   }
 
+  if (!user) {
+    return (
+      <div className="text-center text-slate-400 py-12">
+        <p>Unable to load user data. Please try refreshing the page.</p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
@@ -138,6 +168,24 @@ const Dashboard: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold text-white">Welcome back, {user.firstName || 'User'}!</h1>
             <p className="text-slate-400">Here's what's happening with your account</p>
+          </div>
+        </div>
+        
+        {/* Connection Status */}
+        <div className="flex items-center gap-2">
+          {isOnline ? (
+            <div className="flex items-center gap-2 text-green-400">
+              <Wifi className="w-4 h-4" />
+              <span className="text-xs">Online</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-red-400">
+              <WifiOff className="w-4 h-4" />
+              <span className="text-xs">Offline</span>
+            </div>
+          )}
+          <div className="text-xs text-slate-500">
+            Last sync: {lastSync.toLocaleTimeString()}
           </div>
         </div>
       </div>

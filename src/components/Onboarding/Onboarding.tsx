@@ -2,23 +2,19 @@ import React, { useState } from 'react';
 import Input from '../UI/Input';
 import Button from '../UI/Button';
 import { User, Image as ImageIcon, Save } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
+import { useProfile } from '../../hooks/useProfile';
 import { useNavigate } from 'react-router-dom';
 
 const Onboarding: React.FC = () => {
-  const { user, updateUser } = useAuth();
+  const { user: supabaseUser } = useSupabaseAuth();
+  const { profile, updateProfile, uploadAvatar } = useProfile(supabaseUser);
   const navigate = useNavigate();
-  const [fullName, setFullName] = useState(`${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim());
-  const [preview, setPreview] = useState<string | null>(user?.avatar ?? null);
+  const [fullName, setFullName] = useState(`${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim());
+  const [preview, setPreview] = useState<string | null>(profile?.avatar_url ?? null);
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const toBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -32,15 +28,20 @@ const Onboarding: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      let avatarData = user?.avatar ?? null;
+      let avatarUrl = profile?.avatar_url;
       if (file) {
-        avatarData = await toBase64(file);
+        avatarUrl = await uploadAvatar(file);
       }
 
       const [firstName, ...rest] = fullName.split(' ');
       const lastName = rest.join(' ');
 
-      updateUser({ firstName: firstName || user?.firstName, lastName: lastName || user?.lastName, avatar: avatarData ?? undefined });
+      await updateProfile({
+        first_name: firstName || profile?.first_name,
+        last_name: lastName || profile?.last_name,
+        avatar_url: avatarUrl || undefined
+      });
+      
       localStorage.setItem('apexfx_onboarded', 'true');
       navigate('/');
     } finally {

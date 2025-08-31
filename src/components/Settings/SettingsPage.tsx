@@ -14,10 +14,14 @@ import {
   Camera
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useProfile } from '../hooks/useProfile';
+import { useSupabaseAuth } from '../hooks/useSupabaseAuth';
 import toast from 'react-hot-toast';
 
 const SettingsPage: React.FC = () => {
-  const { user, updateUser } = useAuth();
+  const { user } = useAuth();
+  const { user: supabaseUser } = useSupabaseAuth();
+  const { updateProfile, uploadAvatar } = useProfile(supabaseUser);
   const [name, setName] = useState(`${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim());
   const [preview, setPreview] = useState<string | null>(user?.avatar ?? null);
   const [file, setFile] = useState<File | null>(null);
@@ -108,13 +112,19 @@ const SettingsPage: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      let avatar = user?.avatar ?? undefined;
-      if (file) avatar = await toBase64(file);
+      let avatarUrl = user?.avatar;
+      if (file) {
+        avatarUrl = await uploadAvatar(file);
+      }
 
       const [first, ...rest] = name.split(' ');
       const last = rest.join(' ');
-      updateUser({ firstName: first || user?.firstName, lastName: last || user?.lastName, avatar });
-      toast.success('Profile updated successfully!');
+      
+      await updateProfile({
+        first_name: first || user?.firstName,
+        last_name: last || user?.lastName,
+        avatar_url: avatarUrl || undefined
+      });
     } catch (error) {
       toast.error('Failed to update profile');
     } finally {

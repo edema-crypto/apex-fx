@@ -1,6 +1,23 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { User } from '@supabase/supabase-js';
+import { useSupabaseAuth } from '../hooks/useSupabaseAuth';
+import { useProfile } from '../hooks/useProfile';
+import { useTransactions } from '../hooks/useTransactions';
+import { useAdminData } from '../hooks/useAdminData';
+import { Profile, Transaction } from '../lib/supabase';
 
-interface Transaction {
+interface AuthUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  balance: number;
+  initialBalance: number;
+  avatar?: string;
+  transactions: AuthTransaction[];
+}
+
+interface AuthTransaction {
   id: string;
   amount: number;
   description: string;
@@ -9,28 +26,18 @@ interface Transaction {
   type: 'credit' | 'debit';
 }
 
-interface User {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  balance: number;
-  initialBalance: number;
-  avatar?: string;
-  transactions: Transaction[];
-}
-
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   isAuthenticated: boolean;
   isAdminAuthenticated: boolean;
+  loading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   adminLogin: (email: string, password: string) => Promise<boolean>;
   register: (userData: RegisterData) => Promise<boolean>;
   logout: () => void;
-  updateUser: (userData: Partial<User>) => void;
-  addTransaction: (transaction: Omit<Transaction, 'id' | 'timestamp'>) => void;
-  getUsers: () => User[];
+  updateUser: (userData: Partial<AuthUser>) => Promise<void>;
+  addTransaction: (transaction: Omit<AuthTransaction, 'id' | 'timestamp'>) => Promise<void>;
+  getUsers: () => AuthUser[];
 }
 
 interface RegisterData {
@@ -42,183 +49,116 @@ interface RegisterData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock users data - starting with clean slate
-const mockUsers: User[] = [
-  {
-    id: '1',
-    firstName: 'John',
-    lastName: 'Doe',
-    email: 'john@example.com',
-    balance: 0,
-    initialBalance: 0,
-    avatar: null,
-    transactions: []
-  }
-];
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  const { 
+    user: supabaseUser, 
+    loading: authLoading, 
+    isAdminAuthenticated,
+    signUp, 
+    signIn, 
+    signOut 
+  } = useSupabaseAuth();
+  
+  const { profile, loading: profileLoading, updateProfile } = useProfile(supabaseUser);
+  const { transactions, loading: transactionsLoading, addTransaction: addSupabaseTransaction } = useTransactions(supabaseUser);
+  const { users: adminUsers, addTransactionForUser } = useAdminData(isAdminAuthenticated);
 
-  // Check for existing session on mount
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  // Convert Supabase data to AuthContext format
   useEffect(() => {
-    const savedUser = localStorage.getItem('apexfx_user');
-    const savedAdminAuth = localStorage.getItem('apexfx_admin_auth');
-    const savedUsers = localStorage.getItem('apexfx_users');
-    
-    if (savedUsers) {
-      setUsers(JSON.parse(savedUsers));
+    if (supabaseUser && profile && !profileLoading) {
+      const authTransactions: AuthTransaction[] = transactions.map(t => ({
+        id: t.id,
+        amount: t.amount,
+        description: t.description,
+        status: t.status,
+        timestamp: new Date(t.created_at),
+        type: t.type
+      }));
+
+      const authUser: AuthUser = {
+        id: supabaseUser.id,
+        firstName: profile.first_name || '',
+        lastName: profile.last_name || '',
+        email: supabaseUser.email || '',
+        balance: profile.balance,
+        initialBalance: profile.initial_balance,
+        avatar: profile.avatar_url || undefined,
+        transactions: authTransactions
+      };
+
+      setUser(authUser);
+    } else if (!supabaseUser) {
+      setUser(null);
     }
-    
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-      setIsAuthenticated(true);
-    }
-    
-    if (savedAdminAuth === 'true') {
-      setIsAdminAuthenticated(true);
-    }
-  }, []);
+  }, [supabaseUser, profile, transactions, profileLoading]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock authentication - in real app, this would call an API
-    if (email && password.length >= 8) {
-      // Find existing user or create new one
-      let userData = users.find(u => u.email === email);
-      if (!userData) {
-        userData = {
-          id: Date.now().toString(),
-          firstName: 'User',
-          lastName: '',
-          email,
-          balance: 0,
-          initialBalance: 0,
-          avatar: null,
-          transactions: []
-        };
-        const newUsers = [...users, userData];
-        setUsers(newUsers);
-        localStorage.setItem('apexfx_users', JSON.stringify(newUsers));
-      }
-      
-      setUser(userData);
-      setIsAuthenticated(true);
-      localStorage.setItem('apexfx_user', JSON.stringify(userData));
-      
-      // After login, if onboarding hasn't been completed, redirect
-      const hasOnboarded = localStorage.getItem('apexfx_onboarded') === 'true';
-      if (!hasOnboarded) {
-        localStorage.setItem('apexfx_redirect_after_login', '/onboarding');
-      }
-      return true;
-    }
-    return false;
+    return await signIn(email, password);
   };
 
   const adminLogin = async (email: string, password: string): Promise<boolean> => {
+    // For admin login, we still use regular Supabase auth but check admin status
     if (email === 'admin@apexfx.com' && password === 'ApexFX@Secure2025') {
-      setIsAdminAuthenticated(true);
-      localStorage.setItem('apexfx_admin_auth', 'true');
-      return true;
+      return await signIn(email, password);
     }
     return false;
   };
 
   const register = async (userData: RegisterData): Promise<boolean> => {
-    // Mock registration - in real app, this would call an API
-    try {
-      const newUser: User = {
-        id: Date.now().toString(),
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        email: userData.email,
-        balance: 0,
-        initialBalance: 0,
-        avatar: null,
-        transactions: []
-      };
-      
-      const newUsers = [...users, newUser];
-      setUsers(newUsers);
-      localStorage.setItem('apexfx_users', JSON.stringify(newUsers));
-      
-      setUser(newUser);
-      setIsAuthenticated(true);
-      localStorage.setItem('apexfx_user', JSON.stringify(newUser));
-      return true;
-    } catch (error) {
-      console.error('Registration error:', error);
-      return false;
-    }
+    return await signUp(userData.email, userData.password, userData.firstName, userData.lastName);
   };
 
-  const logout = () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('apexfx_user');
+  const logout = async () => {
+    await signOut();
   };
 
-  const updateUser = (userData: Partial<User>) => {
-    if (user) {
-      const updatedUser = { ...user, ...userData };
-      setUser(updatedUser);
-      localStorage.setItem('apexfx_user', JSON.stringify(updatedUser));
-      
-      // Update in users array
-      const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
-      setUsers(updatedUsers);
-      localStorage.setItem('apexfx_users', JSON.stringify(updatedUsers));
-    }
+  const updateUser = async (userData: Partial<AuthUser>) => {
+    if (!supabaseUser) return;
+
+    const profileUpdates: Partial<Profile> = {};
+    
+    if (userData.firstName !== undefined) profileUpdates.first_name = userData.firstName;
+    if (userData.lastName !== undefined) profileUpdates.last_name = userData.lastName;
+    if (userData.avatar !== undefined) profileUpdates.avatar_url = userData.avatar;
+
+    await updateProfile(profileUpdates);
   };
 
-  const addTransaction = (transactionData: Omit<Transaction, 'id' | 'timestamp'>) => {
-    if (user) {
-      const transaction: Transaction = {
-        id: Date.now().toString(),
-        ...transactionData,
-        timestamp: new Date()
-      };
+  const addTransaction = async (transactionData: Omit<AuthTransaction, 'id' | 'timestamp'>) => {
+    if (!supabaseUser) return;
 
-      // Calculate balance change based on status
-      let balanceChange = 0;
-      if (transaction.status === 'success') {
-        balanceChange = transaction.type === 'credit' ? transaction.amount : -transaction.amount;
-      }
-
-      // Update user balance
-      const newBalance = user.balance + balanceChange;
-      
-      // Set initial balance if this is the first transaction
-      const currentTransactions = user.transactions || [];
-      const newInitialBalance = currentTransactions.length === 0 ? newBalance : user.initialBalance;
-
-      const updatedUser = {
-        ...user,
-        balance: newBalance,
-        initialBalance: newInitialBalance,
-        transactions: [transaction, ...currentTransactions]
-      };
-
-      setUser(updatedUser);
-      localStorage.setItem('apexfx_user', JSON.stringify(updatedUser));
-      
-      // Update in users array
-      const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
-      setUsers(updatedUsers);
-      localStorage.setItem('apexfx_users', JSON.stringify(updatedUsers));
-    }
+    await addSupabaseTransaction({
+      amount: transactionData.amount,
+      description: transactionData.description,
+      status: transactionData.status,
+      type: transactionData.type,
+      currency: 'USD'
+    });
   };
 
-  const getUsers = () => {
-    return users;
+  const getUsers = (): AuthUser[] => {
+    return adminUsers.map(profile => ({
+      id: profile.id,
+      firstName: profile.first_name || '',
+      lastName: profile.last_name || '',
+      email: '', // We don't have email in profiles, would need to join with auth.users
+      balance: profile.balance,
+      initialBalance: profile.initial_balance,
+      avatar: profile.avatar_url || undefined,
+      transactions: [] // Would need to fetch per user
+    }));
   };
+
+  const loading = authLoading || profileLoading || transactionsLoading;
+  const isAuthenticated = !!supabaseUser && !!profile;
 
   const value = {
     user,
     isAuthenticated,
     isAdminAuthenticated,
+    loading,
     login,
     adminLogin,
     register,

@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
 import CurrencySelector from './CurrencySelector';
 import WalletAddress from './WalletAddress';
 import ProofUpload from './ProofUpload';
@@ -18,11 +19,8 @@ const depositSchema = yup.object({
     .required('Amount is required')
 });
 
-interface DepositPageProps {
-  onDeposit: (transaction: any) => void;
-}
-
-const DepositPage: React.FC<DepositPageProps> = ({ onDeposit }) => {
+const DepositPage: React.FC = () => {
+  const { addTransaction } = useAuth();
   const [step, setStep] = useState(1);
   const [selectedCurrency, setSelectedCurrency] = useState('');
   const [selectedWalletAddress, setSelectedWalletAddress] = useState('');
@@ -49,18 +47,14 @@ const DepositPage: React.FC<DepositPageProps> = ({ onDeposit }) => {
     setStep(4);
   };
 
-  const handleConfirmDeposit = () => {
-    const transaction = {
-      id: Date.now().toString(),
-      type: 'deposit',
+  const handleConfirmDeposit = async () => {
+    await addTransaction({
       amount,
-      currency: selectedCurrency,
-      walletAddress: selectedWalletAddress,
+      description: `Deposit ${amount} ${selectedCurrency}`,
       status: 'pending',
-      createdAt: new Date()
-    };
+      type: 'credit'
+    });
     
-    onDeposit(transaction);
     toast.success('Deposit submitted successfully!');
     setStep(5);
   };

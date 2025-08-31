@@ -1,30 +1,18 @@
 import React, { useState } from 'react';
 import { History, Search, Filter, ArrowDownLeft, ArrowUpRight, Clock, CheckCircle, X } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import Input from '../UI/Input';
 import Button from '../UI/Button';
 
-interface Transaction {
-  id: string;
-  type: 'deposit' | 'withdrawal' | 'credit' | 'debit';
-  amount: number;
-  currency?: string;
-  status: 'pending' | 'completed' | 'success' | 'denied';
-  createdAt?: Date;
-  timestamp?: Date;
-  walletAddress?: string;
-  description?: string;
-}
-
-interface TransactionsPageProps {
-  transactions: Transaction[];
-}
-
-const TransactionsPage: React.FC<TransactionsPageProps> = ({ transactions }) => {
+const TransactionsPage: React.FC = () => {
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  const transactions = user?.transactions || [];
 
   // Normalize transaction data to handle both formats
   const normalizedTransactions = (transactions || []).map(transaction => {
@@ -37,17 +25,15 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({ transactions }) => 
                          transaction.status === 'denied' ? 'denied' : 
                          transaction.status;
     
-    const displayDate = transaction.createdAt || transaction.timestamp;
+    const displayDate = transaction.timestamp;
     
     // Extract currency from description if not present
-    let currency = transaction.currency;
-    if (!currency && transaction.description) {
+    let currency = 'USD'; // Default currency
+    if (transaction.description) {
       // Try to extract currency from description (e.g., "Deposit 100 USDT" -> "USDT")
       const currencyMatch = transaction.description.match(/\b(USDT|BTC|ETH|BNB|SOL|USD|EUR)\b/i);
       if (currencyMatch) {
         currency = currencyMatch[1].toUpperCase();
-      } else {
-        currency = 'USD'; // Default currency
       }
     }
 

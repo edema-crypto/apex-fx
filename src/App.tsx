@@ -18,7 +18,19 @@ import AdminUsersList from './components/Admin/AdminUsersList';
 import SettingsPage from './components/Settings/SettingsPage';
 
 const AppContent: React.FC = () => {
-  const { user, isAuthenticated, isAdminAuthenticated, logout, updateUser } = useAuth();
+  const { user, isAuthenticated, isAdminAuthenticated, logout, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-deep-black flex items-center justify-center">
+        <div className="text-center">
+          <img src="https://otiktpyazqotihijbwhm.supabase.co/storage/v1/object/public/images/ec1e8e78-e8e4-4f4d-a225-181630b1f3cd-ChatGPT_Image_Aug_28__2025__12_07_34_AM-removebg-preview.png" alt="ApexFX" className="h-16 mx-auto mb-4 animate-pulse" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-neon-green mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading ApexFX...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-deep-black text-slate-100">
@@ -28,31 +40,7 @@ const AppContent: React.FC = () => {
             isAdminAuthenticated ? (
               <ProtectedRoute requireAdmin>
                 <AdminLayout onLogout={logout}>
-                  <AdminDashboard 
-                    users={user ? [user] : []} 
-                    transactions={user?.transactions || []}
-                    onUpdateUser={updateUser}
-                    onAddTransaction={(transaction) => {
-                      // This will now update the user's transactions in AuthContext
-                      if (user) {
-                        // Convert admin transaction format to AuthContext format
-                        const authContextTransaction = {
-                          id: transaction.id,
-                          amount: transaction.amount,
-                          description: `${transaction.type} ${transaction.amount} ${transaction.currency}`,
-                          status: 'success', // Admin transactions are typically successful
-                          timestamp: transaction.createdAt || new Date(),
-                          type: transaction.type === 'deposit' ? 'credit' : 'debit'
-                        };
-                        
-                        const updatedUser = {
-                          ...user,
-                          transactions: [authContextTransaction, ...(user.transactions || [])]
-                        };
-                        updateUser(updatedUser);
-                      }
-                    }}
-                  />
+                  <AdminDashboard />
                 </AdminLayout>
               </ProtectedRoute>
             ) : (
@@ -101,16 +89,7 @@ const AppContent: React.FC = () => {
             isAuthenticated ? (
               <ProtectedRoute>
                 <Layout user={user!} onLogout={logout}>
-                  <DepositPage onDeposit={(transaction) => {
-                    // This will update the user's transactions in AuthContext
-                    if (user) {
-                      const updatedUser = {
-                        ...user,
-                        transactions: [transaction, ...(user.transactions || [])]
-                      };
-                      updateUser(updatedUser);
-                    }
-                  }} />
+                  <DepositPage />
                 </Layout>
               </ProtectedRoute>
             ) : (
@@ -122,16 +101,7 @@ const AppContent: React.FC = () => {
             isAuthenticated ? (
               <ProtectedRoute>
                 <Layout user={user!} onLogout={logout}>
-                  <WithdrawPage balance={user!.balance} onWithdraw={(transaction) => {
-                    // This will update the user's transactions in AuthContext
-                    if (user) {
-                      const updatedUser = {
-                        ...user,
-                        transactions: [transaction, ...(user.transactions || [])]
-                      };
-                      updateUser(updatedUser);
-                    }
-                  }} />
+                  <WithdrawPage />
                 </Layout>
               </ProtectedRoute>
             ) : (
@@ -143,7 +113,7 @@ const AppContent: React.FC = () => {
             isAuthenticated ? (
               <ProtectedRoute>
                 <Layout user={user!} onLogout={logout}>
-                  <TransactionsPage transactions={user?.transactions || []} />
+                  <TransactionsPage />
                 </Layout>
               </ProtectedRoute>
             ) : (

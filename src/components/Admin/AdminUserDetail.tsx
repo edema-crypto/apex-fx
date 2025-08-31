@@ -1,36 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { supabase, Profile, Transaction } from '../../lib/supabase';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
-import { useAuth } from '../../contexts/AuthContext';
-
-interface Transaction {
-  id: string;
-  amount: number;
-  description: string;
-  status: 'pending' | 'success' | 'denied';
-  timestamp: Date;
-  type: 'credit' | 'debit';
-}
-
-interface User {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  balance: number;
-  initialBalance: number;
-  avatar?: string;
-  transactions: Transaction[];
-}
+import toast from 'react-hot-toast';
 
 const AdminUserDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getUsers, addTransaction } = useAuth();
   
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<Profile | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
   const [transactionForm, setTransactionForm] = useState({
     amount: '',
     description: '',
@@ -39,32 +21,114 @@ const AdminUserDetail: React.FC = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load user data from AuthContext
+  // Load user data from Supabase
   useEffect(() => {
-    const loadUserData = () => {
-      const users = getUsers();
-      const targetUser = users.find(u => u.id === id);
-      if (targetUser) {
-        setUser(targetUser);
+    if (id) {
+      loadUserData();
+      setupRealtimeSubscription();
+    }
+  }, [id]);
+
+  const loadUserData = async () => {
+    if (!id) return;
+
+    try {
+      setLoading(true);
+      
+      // Fetch user profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (profileError) {
+        toast.error('User not found');
+        navigate('/admin/users');
+        return;
       }
+
+      setUser(profileData);
+
+      // Fetch user transactions
+      const { data: transactionsData, error: transactionsError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', id)
+        .order('created_at', { ascending: false });
+
+      if (!transactionsError) {
+        setTransactions(transactionsData || []);
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      toast.error('Failed to load user data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setupRealtimeSubscription = () => {
+    if (!id) return;
+
+    // Subscribe to profile changes
+    const profileSubscription = supabase
+      .channel('user_profile_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${id}`
+        },
+        (payload) => {
+          setUser(payload.new as Profile);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to transaction changes
+    const transactionSubscription = supabase
+      .channel('user_transaction_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions',
+          filter: `user_id=eq.${id}`
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setTransactions(prev => [payload.new as Transaction, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setTransactions(prev => 
+              prev.map(t => t.id === payload.new.id ? payload.new as Transaction : t)
+            );
+          } else if (payload.eventType === 'DELETE') {
+            setTransactions(prev => 
+              prev.filter(t => t.id !== payload.old.id)
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      profileSubscription.unsubscribe();
+      transactionSubscription.unsubscribe();
     };
-    
-    loadUserData();
-    
-    // Set up an interval to refresh user data
-    const interval = setInterval(loadUserData, 1000);
-    
-    return () => clearInterval(interval);
-  }, [id, getUsers]);
+  };
 
   // Calculate P&L percentage
   const calculatePnL = () => {
-    if (!user || user.initialBalance === 0) return 0;
-    return ((user.balance - user.initialBalance) / user.initialBalance) * 100;
+    if (!user || user.initial_balance === 0) return 0;
+    return ((user.balance - user.initial_balance) / user.initial_balance) * 100;
   };
 
   const pnlPercentage = calculatePnL();
-  const pnlAmount = user ? user.balance - user.initialBalance : 0;
+  const pnlAmount = user ? user.balance - user.initial_balance : 0;
 
   const handleTransactionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,13 +144,24 @@ const AdminUserDetail: React.FC = () => {
       const type: 'credit' | 'debit' = amount >= 0 ? 'credit' : 'debit';
       const absoluteAmount = Math.abs(amount);
 
-      // Add transaction through AuthContext
-      addTransaction({
-        amount: absoluteAmount,
-        description: transactionForm.description,
-        status: transactionForm.status,
-        type
-      });
+      // Add transaction through Supabase
+      const { error } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: id,
+          amount: absoluteAmount,
+          description: transactionForm.description,
+          status: transactionForm.status,
+          type,
+          currency: 'USD'
+        });
+
+      if (error) {
+        toast.error('Failed to add transaction');
+        return;
+      }
+
+      toast.success('Transaction added successfully!');
 
       // Reset form
       setTransactionForm({
@@ -94,25 +169,17 @@ const AdminUserDetail: React.FC = () => {
         description: '',
         status: 'success'
       });
-
-      // Force refresh user data immediately
-      setTimeout(() => {
-        const users = getUsers();
-        const updatedUser = users.find(u => u.id === id);
-        if (updatedUser) {
-          setUser(updatedUser);
-        }
-      }, 100);
       
     } catch (error) {
       console.error('Error saving transaction:', error);
+      toast.error('Failed to save transaction');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   // Show loading state while user data is being fetched
-  if (!user) {
+  if (loading || !user) {
     return (
       <div className="max-w-6xl mx-auto p-3 sm:p-6">
         <div className="text-center text-slate-400">
@@ -136,7 +203,7 @@ const AdminUserDetail: React.FC = () => {
           </button>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-white">User Account Management</h1>
-            <p className="text-sm sm:text-base text-slate-400">Manage {user.firstName} {user.lastName}'s account</p>
+            <p className="text-sm sm:text-base text-slate-400">Manage {user.first_name} {user.last_name}'s account</p>
           </div>
         </div>
       </div>
@@ -151,13 +218,13 @@ const AdminUserDetail: React.FC = () => {
                   <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   <div className="text-lg sm:text-2xl text-slate-400 font-semibold">
-                    {user.firstName?.[0]}{user.lastName?.[0]}
+                    {user.first_name?.[0]}{user.last_name?.[0]}
                   </div>
                 )}
               </div>
               <div>
-                <h2 className="text-lg sm:text-xl font-semibold text-white">{user.firstName} {user.lastName}</h2>
-                <p className="text-sm text-slate-400">{user.email}</p>
+                <h2 className="text-lg sm:text-xl font-semibold text-white">{user.first_name} {user.last_name}</h2>
+                <p className="text-sm text-slate-400">{user.id}</p>
               </div>
             </div>
             
@@ -171,7 +238,7 @@ const AdminUserDetail: React.FC = () => {
               {/* Initial Balance */}
               <div className="bg-slate-800 rounded-xl p-3 sm:p-4">
                 <p className="text-sm text-slate-400 mb-1">Initial Balance</p>
-                <p className="text-base sm:text-lg font-semibold text-white">${(user.initialBalance || 0).toFixed(2)}</p>
+                <p className="text-base sm:text-lg font-semibold text-white">${(user.initial_balance || 0).toFixed(2)}</p>
               </div>
 
               {/* P&L Indicator - Prominently Displayed */}
@@ -199,7 +266,7 @@ const AdminUserDetail: React.FC = () => {
               {/* Transaction Count */}
               <div className="bg-slate-800 rounded-xl p-3 sm:p-4">
                 <p className="text-sm text-slate-400 mb-1">Total Transactions</p>
-                <p className="text-lg sm:text-xl font-semibold text-white">{user.transactions?.length || 0}</p>
+                <p className="text-lg sm:text-xl font-semibold text-white">{transactions.length}</p>
               </div>
             </div>
           </div>
@@ -292,8 +359,8 @@ const AdminUserDetail: React.FC = () => {
             <h3 className="text-base sm:text-lg font-semibold text-white mb-4">Transaction History</h3>
             
             <div className="space-y-3">
-              {user.transactions && user.transactions.length > 0 ? (
-                user.transactions.map((transaction) => (
+              {transactions.length > 0 ? (
+                transactions.map((transaction) => (
                   <div key={transaction.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 bg-slate-800 rounded-xl border border-slate-700 gap-3">
                     <div className="flex items-center gap-3 sm:gap-4">
                       <div className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium border ${
@@ -306,7 +373,7 @@ const AdminUserDetail: React.FC = () => {
                       <div>
                         <p className="text-white font-medium text-sm sm:text-base">{transaction.description}</p>
                         <p className="text-xs text-slate-400">
-                          {new Date(transaction.timestamp).toLocaleDateString()} at {new Date(transaction.timestamp).toLocaleTimeString()}
+                          {new Date(transaction.created_at).toLocaleDateString()} at {new Date(transaction.created_at).toLocaleTimeString()}
                         </p>
                       </div>
                     </div>
