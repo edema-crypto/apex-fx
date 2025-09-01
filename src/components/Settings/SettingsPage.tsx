@@ -14,7 +14,7 @@ import {
   Camera
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useProfile } from '../hooks/useProfile';
+import { useProfile } from '../../hooks/useProfile';
 import { useSupabaseAuth } from '../hooks/useSupabaseAuth';
 import toast from 'react-hot-toast';
 
